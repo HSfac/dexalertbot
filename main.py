@@ -17,6 +17,35 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from scam_checker_all import check_token_scam, check_user_tokens_scam, check_all_tokens_scam
 from analyze_checker_all import analyze_token, analyze_user_tokens
 
+# 시장 스캐너 모듈 임포트 추가
+from market_scanner import (
+    market_scanner_scheduler, 
+    enable_breakout_alerts, 
+    disable_breakout_alerts, 
+    get_breakout_alerts_status,
+    get_recent_breakout_tokens,
+    init_db as init_market_scanner_db
+)
+
+# price_tracker 모듈 임포트
+from price_tracker import (
+    init_ohlc_db, 
+    ohlc_scheduler, 
+    add_ohlc_alert, 
+    remove_ohlc_alert, 
+    get_user_ohlc_alerts,
+    get_ohlc_data,
+    calculate_daily_change,
+    generate_ohlc_chart_data,
+    generate_price_summary,
+    # 일일 요약 알림 관련 함수 추가
+    init_daily_summary_db,
+    daily_summary_scheduler,
+    enable_daily_summary_alerts,
+    disable_daily_summary_alerts,
+    get_daily_summary_alerts_status
+)
+
 # 환경 변수 로드
 load_dotenv()
 
@@ -1006,7 +1035,7 @@ async def send_help(message: types.Message):
         f"• 가격 변동 자동 알림\n"
         f"• 토큰 스캠 위험도 분석\n"
         f"• 유동성 및 거래량 추적\n"
-        f"• 종합적인 토큰 분석\n\n"
+        f"• 1백만 달러 시가총액 돌파 알림\n\n"
         
         f"📌 <b>명령어 가이드</b>\n\n"
         
@@ -1020,19 +1049,24 @@ async def send_help(message: types.Message):
         f"<b>🔹 가격 정보 및 모니터링</b>\n"
         f"<code>/price</code> - 모든 토큰의 가격 정보 조회\n"
         f"<code>/price [토큰주소] [네트워크]</code> - 특정 토큰 가격 조회\n"
-        f"<code>/marketcap</code> - 시가총액 정보 조회\n\n"
+        f"<code>/marketcap</code> - 시가총액 정보 조회\n"
+        f"<code>/pools [토큰주소] [네트워크]</code> - 유동성 풀 정보\n\n"
         
-        f"<b>🔹 토큰 분석 도구</b>\n"
-        f"<code>/pools [토큰주소] [네트워크]</code> - 유동성 풀 정보\n"
+        f"<b>🔹 토큰 안전성 확인</b>\n"
         f"<code>/scamcheck [토큰주소] [네트워크]</code> - 스캠 위험도 분석\n"
-        f"<code>/scamcheckall</code> - 모든 토큰 스캠 위험도 분석\n"
-        f"<code>/analyze [토큰주소] [네트워크]</code> - 종합적인 토큰 분석\n"
-        f"<code>/analyzeall</code> - 모든 토큰 종합 분석\n\n"
+        f"<code>/scamcheckall</code> - 모든 토큰 스캠 위험도 분석\n\n"
+        
+        f"<b>🔹 시장 스캔 및 알림</b>\n"
+        f"<code>/breakoutalerts</code> - 1백만 달러 돌파 알림 상태 확인\n"
+        f"<code>/breakoutalerts on</code> - 돌파 알림 활성화\n"
+        f"<code>/breakoutalerts off</code> - 돌파 알림 비활성화\n"
+        f"<code>/breakouts</code> - 최근 돌파 토큰 목록 조회\n"
+        f"<code>/potential</code> - 잠재적 돌파 토큰 목록 조회\n\n"
         
         f"⚠️ 가격 변동이 <b>{PRICE_CHANGE_THRESHOLD}%</b> 이상일 경우 자동으로 알림이 전송됩니다.\n\n"
         
         f"🌐 <b>지원하는 네트워크</b>\n"
-        f"• 이더리움 (ETH)\n"
+        f"• 이더리움 (ETH) | 지원 에러\n"
         f"• 바이낸스 스마트 체인 (BSC)\n"
         f"• 폴리곤 (MATIC)\n"
         f"• 아비트럼 (ARB)\n"
@@ -1045,9 +1079,7 @@ async def send_help(message: types.Message):
         f"1️⃣ <code>/dex</code> 명령어로 토큰 추가하기\n"
         f"2️⃣ <code>/price</code>로 토큰 가격 확인하기\n"
         f"3️⃣ <code>/scamcheck</code>로 토큰 안전성 확인하기\n"
-        f"4️⃣ <code>/analyze</code>로 토큰 종합 분석하기\n\n"
-        
-        f"💡 <b>팁</b>: <code>/analyzeall</code> 명령어를 사용하면 추적 중인 모든 토큰의 종합 분석 결과를 한 번에 확인할 수 있습니다.\n\n"
+        f"4️⃣ <code>/breakoutalerts on</code>으로 돌파 알림 활성화하기\n\n"
         
         f"🛡️ <b>안전한 투자를 위한 조언</b>\n"
         f"• 항상 토큰의 스캠 위험도를 확인하세요\n"
@@ -1065,15 +1097,15 @@ async def send_help(message: types.Message):
     add_token_button = types.InlineKeyboardButton("➕ 토큰 추가하기", callback_data="add_token")
     price_check_button = types.InlineKeyboardButton("💰 가격 확인", callback_data="price_check")
     scam_check_button = types.InlineKeyboardButton("🛡️ 스캠 체크", callback_data="scam_check")
-    analyze_button = types.InlineKeyboardButton("📊 토큰 분석", callback_data="analyze_all")
+    breakout_button = types.InlineKeyboardButton("🚀 돌파 알림 켜기", callback_data="enable_breakout")
     
     markup.add(add_token_button, price_check_button)
-    markup.add(scam_check_button, analyze_button)
+    markup.add(scam_check_button, breakout_button)
     
     await message.reply(help_text, parse_mode="HTML", reply_markup=markup)
 
 # 인라인 버튼 콜백 처리
-@dp.callback_query_handler(lambda c: c.data in ['add_token', 'price_check', 'scam_check', 'analyze_all'])
+@dp.callback_query_handler(lambda c: c.data in ['add_token', 'price_check', 'scam_check', 'enable_breakout'])
 async def process_callback(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
     
@@ -1107,86 +1139,98 @@ async def process_callback(callback_query: types.CallbackQuery):
         })
         await scamcheck_all_tokens(message)
     
-    elif callback_query.data == "analyze_all":
-        # 토큰 분석 명령어 실행
-        message = types.Message.to_object({
-            "message_id": 0, 
-            "from": callback_query.from_user.to_python(), 
-            "chat": callback_query.message.chat.to_python(), 
-            "date": 0, 
-            "text": "/analyzeall"
-        })
-        await analyze_all_tokens_command(message)
-
-# 가격 모니터링 및 알림 전송
-async def check_price_changes():
-    conn = sqlite3.connect('tokens.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id, token, network, last_price FROM tokens")
-    tokens = cursor.fetchall()
-    
-    logger.info(f"가격 모니터링 시작: {len(tokens)}개 토큰 확인 중...")
-    alert_count = 0
-    
-    for user_id, token_address, network, last_price in tokens:
-        try:
-            price_info = await get_token_price(token_address, network)
-            
-            if not price_info["success"]:
-                logger.error(f"토큰 {token_address} 가격 조회 실패: {price_info['error']}")
-                continue
-            
-            current_price = price_info["price"]
-            
-            # 가격 변동 계산
-            if last_price > 0:
-                price_change_percent = abs((current_price - last_price) / last_price * 100)
-                price_change_direction = "상승" if current_price > last_price else "하락"
-                
-                logger.info(f"토큰 {price_info['symbol']} ({network}): {price_change_percent:.2f}% {price_change_direction}")
-                
-                # 가격 변동이 임계값을 초과하면 알림 전송
-                if price_change_percent >= PRICE_CHANGE_THRESHOLD:
-                    alert_count += 1
-                    
-                    # 이모지 선택 (상승 시 🚀, 하락 시 📉)
-                    change_emoji = "🚀" if current_price > last_price else "📉"
-                    
-                    try:
-                        await bot.send_message(
-                            user_id,
-                            f"{change_emoji} <b>가격 변동 알림!</b>\n\n"
-                            f"<b>{price_info['name']} ({price_info['symbol']})</b>\n"
-                            f"네트워크: <code>{network}</code>\n"
-                            f"이전 가격: <b>${last_price:.8f}</b>\n"
-                            f"현재 가격: <b>${current_price:.8f}</b>\n"
-                            f"변동: <b>{price_change_percent:.2f}% {price_change_direction}</b>\n\n"
-                            f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                            parse_mode="HTML"
-                        )
-                        logger.info(f"알림 전송 성공 (사용자 ID: {user_id}, 토큰: {price_info['symbol']})")
-                    except Exception as e:
-                        logger.error(f"알림 전송 실패 (사용자 ID: {user_id}): {str(e)}")
-                        # 사용자가 봇을 차단한 경우 해당 토큰 제거 고려
-                        if "bot was blocked by the user" in str(e):
-                            logger.warning(f"사용자 {user_id}가 봇을 차단함. 해당 사용자의 토큰을 제거할 수 있습니다.")
-                            # 여기서 사용자의 토큰을 제거하는 코드를 추가할 수 있습니다
-            
-            # 데이터베이스 업데이트
-            cursor.execute(
-                "UPDATE tokens SET last_price = ?, last_updated = ? WHERE user_id = ? AND token = ? AND network = ?",
-                (current_price, datetime.now(), user_id, token_address, network)
+    elif callback_query.data == "enable_breakout":
+        # 돌파 알림 활성화
+        user_id = callback_query.from_user.id
+        if enable_breakout_alerts(user_id):
+            await bot.send_message(
+                user_id,
+                "✅ <b>1백만 달러 시가총액 돌파 알림이 활성화되었습니다!</b>\n\n"
+                "새로운 토큰이 1백만 달러 시가총액을 돌파하면 알림을 받게 됩니다.",
+                parse_mode="HTML"
             )
-        except Exception as e:
-            logger.error(f"토큰 {token_address} ({network}) 모니터링 중 오류: {str(e)}")
-    
-    conn.commit()
-    conn.close()
-    
-    if alert_count > 0:
+        else:
+            await bot.send_message(
+                user_id,
+                "❌ <b>알림 설정 중 오류가 발생했습니다.</b>\n\n"
+                "잠시 후 다시 시도해주세요.",
+                parse_mode="HTML"
+            )
+
+# 가격 모니터링 및 알림 전송 함수 수정
+async def check_price_changes():
+    try:
+        conn = sqlite3.connect('tokens.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, token, network, last_price FROM tokens")
+        tokens = cursor.fetchall()
+        conn.close()
+        
+        logger.info(f"가격 모니터링 시작: {len(tokens)}개 토큰 확인 중...")
+        alert_count = 0
+        
+        for user_id, token_address, network, last_price in tokens:
+            try:
+                # API 요청 사이에 지연 시간 추가
+                await asyncio.sleep(1)
+                
+                # 토큰 가격 조회
+                price_info = await get_token_price(token_address, network)
+                
+                if not price_info["success"]:
+                    logger.error(f"토큰 {token_address} 가격 조회 실패: {price_info['error']}")
+                    continue
+                
+                current_price = price_info["price"]
+                
+                # 가격 변동 계산
+                if last_price > 0:
+                    price_change_percent = abs((current_price - last_price) / last_price * 100)
+                    price_change_direction = "상승" if current_price > last_price else "하락"
+                    
+                    logger.info(f"토큰 {price_info['symbol']} ({network}): {price_change_percent:.2f}% {price_change_direction}")
+                    
+                    # 가격 변동이 임계값을 초과하면 알림 전송
+                    if price_change_percent >= PRICE_CHANGE_THRESHOLD:
+                        alert_count += 1
+                        
+                        # 이모지 선택 (상승 시 🚀, 하락 시 📉)
+                        change_emoji = "🚀" if current_price > last_price else "📉"
+                        
+                        try:
+                            await bot.send_message(
+                                user_id,
+                                f"{change_emoji} <b>가격 변동 알림!</b>\n\n"
+                                f"<b>{price_info['name']} ({price_info['symbol']})</b>\n"
+                                f"네트워크: <code>{network}</code>\n"
+                                f"이전 가격: <b>${last_price:.8f}</b>\n"
+                                f"현재 가격: <b>${current_price:.8f}</b>\n"
+                                f"변동: <b>{price_change_percent:.2f}% {price_change_direction}</b>\n\n"
+                                f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                                parse_mode="HTML"
+                            )
+                            logger.info(f"알림 전송 성공 (사용자 ID: {user_id}, 토큰: {price_info['symbol']})")
+                        except Exception as e:
+                            logger.error(f"알림 전송 실패 (사용자 ID: {user_id}): {str(e)}")
+                
+                # 데이터베이스 업데이트
+                conn = sqlite3.connect('tokens.db')
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE tokens SET last_price = ?, last_updated = ? WHERE user_id = ? AND token = ? AND network = ?",
+                    (current_price, datetime.now(), user_id, token_address, network)
+                )
+                conn.commit()
+                conn.close()
+                
+            except Exception as e:
+                logger.error(f"토큰 {token_address} ({network}) 모니터링 중 오류: {str(e)}")
+                continue
+        
         logger.info(f"가격 모니터링 완료: {alert_count}개 알림 전송됨")
-    else:
-        logger.info("가격 모니터링 완료: 알림 없음")
+        
+    except Exception as e:
+        logger.error(f"가격 체크 중 오류: {str(e)}")
 
 # 주기적 가격 체크 스케줄러
 async def scheduler():
@@ -1194,13 +1238,19 @@ async def scheduler():
         await check_price_changes()
         await asyncio.sleep(PRICE_CHECK_INTERVAL)
 
-# 메인 함수
+# 메인 함수 수정
 async def main():
     # 데이터베이스 초기화
     init_db()
+    init_market_scanner_db()
+    init_ohlc_db()
+    init_daily_summary_db()  # 일일 요약 알림 데이터베이스 초기화
     
     # 스케줄러 시작
-    asyncio.create_task(scheduler())
+    asyncio.create_task(scheduler())  # 가격 알림 스케줄러
+    asyncio.create_task(market_scanner_scheduler())  # 시장 스캔 스케줄러
+    asyncio.create_task(ohlc_scheduler(bot))  # OHLC 스케줄러 시작
+    asyncio.create_task(daily_summary_scheduler(bot))  # 일일 요약 알림 스케줄러 시작
     
     # 봇 시작
     await dp.start_polling()
@@ -1823,11 +1873,13 @@ async def analyze_all_tokens(message: types.Message):
 @dp.message_handler(commands=['scamcheckall'])
 async def scamcheck_all_tokens(message: types.Message):
     try:
-        # 로딩 메시지 표시
-        loading_message = await message.reply("🔍 <b>모든 토큰의 스캠 여부를 확인 중입니다...</b>", parse_mode="HTML")
+        user_id = message.from_user.id
         
-        # 스캠 체크 실행
-        scam_results = await check_all_tokens_scam()
+        # 로딩 메시지 표시
+        loading_message = await message.reply("🔍 <b>내 토큰의 스캠 여부를 확인 중입니다...</b>", parse_mode="HTML")
+        
+        # 사용자의 토큰만 스캠 체크 실행
+        scam_results = await check_user_tokens_scam(user_id)
         
         if not scam_results["success"]:
             await loading_message.edit_text(
@@ -1851,7 +1903,7 @@ async def scamcheck_all_tokens(message: types.Message):
         
         # 위험도 높은 토큰 먼저 정렬
         sorted_results = sorted(
-            scam_results["tokens"],  # "results" 대신 "tokens" 사용
+            scam_results["tokens"],
             key=lambda x: (
                 0 if x["risk"] == "매우 높음" else
                 1 if x["risk"] == "높음" else
@@ -1860,8 +1912,8 @@ async def scamcheck_all_tokens(message: types.Message):
             )
         )
         
-        # 상위 10개만 표시
-        for i, result in enumerate(sorted_results[:10], 1):
+        # 모든 토큰 표시
+        for i, result in enumerate(sorted_results, 1):
             risk_emoji = "🔴" if result["risk"] in ["매우 높음", "높음"] else "🟠" if result["risk"] == "중간" else "🟢"
             
             result_text += f"{i}. {risk_emoji} <b>{result['name']} ({result['symbol']})</b>\n"
@@ -1871,19 +1923,34 @@ async def scamcheck_all_tokens(message: types.Message):
             if result["indicators"]:
                 result_text += f"   위험 지표: {', '.join(result['indicators'][:3])}\n"
             
-            result_text += f"   추적 중인 사용자: {len(result['users'])}명\n\n"
+            # 유동성 정보
+            if "liquidity_amount" in result and result["liquidity_amount"] > 0:
+                result_text += f"   유동성: ${result['liquidity_amount']:,.2f}\n"
+            
+            # 홀더 정보
+            if "top_holder_percentage" in result and result["top_holder_percentage"] > 0:
+                result_text += f"   최대 홀더: {result['top_holder_percentage']:.2f}%\n"
+            
+            # 생성 일자
+            if "days_since_creation" in result and result["days_since_creation"] > 0:
+                result_text += f"   생성 일자: {result['days_since_creation']}일 전\n"
+            
+            result_text += "\n"
         
-        # 더 많은 결과가 있는 경우
-        if len(sorted_results) > 10:
-            result_text += f"...외 {len(sorted_results) - 10}개 토큰\n\n"
-        
-        result_text += "자세한 분석을 보려면 <code>/scamcheck</code> 명령어를 사용하세요."
-        
-        # 결과 메시지 전송
-        await loading_message.edit_text(result_text, parse_mode="HTML")
+        # 결과 메시지 전송 (긴 메시지 처리)
+        if len(result_text) > 4096:
+            # 메시지가 너무 길면 여러 개로 나눠서 전송
+            for i in range(0, len(result_text), 4096):
+                chunk = result_text[i:i+4096]
+                if i == 0:
+                    await loading_message.edit_text(chunk, parse_mode="HTML")
+                else:
+                    await message.reply(chunk, parse_mode="HTML")
+        else:
+            await loading_message.edit_text(result_text, parse_mode="HTML")
         
     except Exception as e:
-        logger.error(f"모든 토큰 스캠 체크 명령 처리 중 오류: {str(e)}")
+        logger.error(f"사용자 토큰 스캠 체크 명령 처리 중 오류: {str(e)}")
         await message.reply(
             f"❌ <b>오류가 발생했습니다</b>: {str(e)}",
             parse_mode="HTML"
@@ -2062,6 +2129,462 @@ async def scamcheck_user_tokens(message: types.Message):
         logger.error(f"사용자 토큰 스캠 체크 명령 처리 중 오류: {str(e)}")
         await message.reply(
             f"❌ <b>오류가 발생했습니다</b>: {str(e)}",
+            parse_mode="HTML"
+        )
+
+# 1백만 달러 돌파 알림 활성화 명령어
+@dp.message_handler(commands=['breakoutalerts'])
+async def breakout_alerts_command(message: types.Message):
+    user_id = message.from_user.id
+    args = message.get_args().lower()
+    
+    if args == "on":
+        # 알림 활성화
+        if enable_breakout_alerts(user_id):
+            await message.reply(
+                "✅ <b>1백만 달러 시가총액 돌파 알림이 활성화되었습니다!</b>\n\n"
+                "새로운 토큰이 1백만 달러 시가총액을 돌파하면 알림을 받게 됩니다.",
+                parse_mode="HTML"
+            )
+        else:
+            await message.reply(
+                "❌ <b>알림 설정 중 오류가 발생했습니다.</b>\n\n"
+                "잠시 후 다시 시도해주세요.",
+                parse_mode="HTML"
+            )
+    
+    elif args == "off":
+        # 알림 비활성화
+        if disable_breakout_alerts(user_id):
+            await message.reply(
+                "✅ <b>1백만 달러 시가총액 돌파 알림이 비활성화되었습니다.</b>",
+                parse_mode="HTML"
+            )
+        else:
+            await message.reply(
+                "❌ <b>알림 설정 중 오류가 발생했습니다.</b>\n\n"
+                "잠시 후 다시 시도해주세요.",
+                parse_mode="HTML"
+            )
+    
+    else:
+        # 현재 상태 확인
+        is_enabled = get_breakout_alerts_status(user_id)
+        status = "활성화" if is_enabled else "비활성화"
+        
+        await message.reply(
+            f"ℹ️ <b>1백만 달러 시가총액 돌파 알림 상태</b>: {status}\n\n"
+            f"명령어:\n"
+            f"<code>/breakoutalerts on</code> - 알림 활성화\n"
+            f"<code>/breakoutalerts off</code> - 알림 비활성화",
+            parse_mode="HTML"
+        )
+
+# 최근 돌파 토큰 목록 명령어
+@dp.message_handler(commands=['breakouts'])
+async def recent_breakouts_command(message: types.Message):
+    # 최근 돌파 토큰 목록 가져오기
+    breakout_tokens = get_recent_breakout_tokens(limit=10)
+    
+    if not breakout_tokens:
+        await message.reply(
+            "ℹ️ <b>최근 1백만 달러를 돌파한 토큰이 없습니다.</b>",
+            parse_mode="HTML"
+        )
+        return
+    
+    response = "🚀 <b>최근 1백만 달러 시가총액 돌파 토큰</b>\n\n"
+    
+    for i, token in enumerate(breakout_tokens, 1):
+        breakout_time = datetime.fromisoformat(token['last_updated']) if isinstance(token['last_updated'], str) else token['last_updated']
+        formatted_time = breakout_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        response += (
+            f"{i}. <b>{token['name']} ({token['symbol']})</b>\n"
+            f"   네트워크: {SUPPORTED_NETWORKS.get(token['network'], token['network'])}\n"
+            f"   시가총액: ${token['market_cap']:,.2f}\n"
+            f"   가격: ${token['price']:.8f}\n"
+            f"   돌파 시간: {formatted_time}\n\n"
+        )
+    
+    await message.reply(response, parse_mode="HTML")
+
+# 시장 스캔 수동 실행 명령어 (관리자 전용)
+@dp.message_handler(commands=['scan_market'])
+async def scan_market_command(message: types.Message):
+    # 관리자 ID 확인 (실제 구현 시 관리자 ID 목록을 환경 변수 등으로 관리)
+    admin_ids = [123456789]  # 예시 ID, 실제 관리자 ID로 변경 필요
+    
+    if message.from_user.id not in admin_ids:
+        await message.reply("⛔ 이 명령어는 관리자만 사용할 수 있습니다.")
+        return
+    
+    loading_message = await message.reply("🔍 시장 스캔을 시작합니다. 이 작업은 몇 분 정도 소요될 수 있습니다...")
+    
+    try:
+        # 시장 스캔 함수 임포트 및 실행
+        from market_scanner import scan_market_for_new_tokens
+        await scan_market_for_new_tokens()
+        
+        await loading_message.edit_text("✅ 시장 스캔이 완료되었습니다.")
+    except Exception as e:
+        logger.error(f"시장 스캔 중 오류: {str(e)}")
+        await loading_message.edit_text(f"❌ 시장 스캔 중 오류가 발생했습니다: {str(e)}")
+
+# 잠재적 돌파 토큰 추적 수동 실행 명령어 (관리자 전용)
+@dp.message_handler(commands=['track_breakouts'])
+async def track_breakouts_command(message: types.Message):
+    # 관리자 ID 확인
+    admin_ids = [123456789]  # 예시 ID, 실제 관리자 ID로 변경 필요
+    
+    if message.from_user.id not in admin_ids:
+        await message.reply("⛔ 이 명령어는 관리자만 사용할 수 있습니다.")
+        return
+    
+    loading_message = await message.reply("🔍 잠재적 돌파 토큰을 추적합니다...")
+    
+    try:
+        # 토큰 추적 함수 임포트 및 실행
+        from market_scanner import track_potential_breakout_tokens
+        await track_potential_breakout_tokens()
+        
+        await loading_message.edit_text("✅ 토큰 추적이 완료되었습니다.")
+    except Exception as e:
+        logger.error(f"토큰 추적 중 오류: {str(e)}")
+        await loading_message.edit_text(f"❌ 토큰 추적 중 오류가 발생했습니다: {str(e)}")
+
+# 잠재적 토큰 목록 조회 명령어
+@dp.message_handler(commands=['potential'])
+async def potential_tokens_command(message: types.Message):
+    try:
+        conn = sqlite3.connect('tokens.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            """
+            SELECT * FROM potential_tokens 
+            WHERE breakout_detected = 0
+            ORDER BY market_cap DESC
+            LIMIT 10
+            """
+        )
+        
+        tokens = cursor.fetchall()
+        conn.close()
+        
+        if not tokens:
+            await message.reply(
+                "ℹ️ <b>현재 추적 중인 잠재적 토큰이 없습니다.</b>",
+                parse_mode="HTML"
+            )
+            return
+        
+        response = "🔍 <b>현재 추적 중인 잠재적 토큰 (80만~100만 달러 시가총액)</b>\n\n"
+        
+        for i, token in enumerate(tokens, 1):
+            first_seen = datetime.fromisoformat(token['first_seen']) if isinstance(token['first_seen'], str) else token['first_seen']
+            formatted_time = first_seen.strftime('%Y-%m-%d %H:%M:%S')
+            
+            response += (
+                f"{i}. <b>{token['name']} ({token['symbol']})</b>\n"
+                f"   네트워크: {SUPPORTED_NETWORKS.get(token['network'], token['network'])}\n"
+                f"   시가총액: ${token['market_cap']:,.2f}\n"
+                f"   가격: ${token['price']:.8f}\n"
+                f"   발견 시간: {formatted_time}\n\n"
+            )
+        
+        await message.reply(response, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"잠재적 토큰 목록 조회 중 오류: {str(e)}")
+        await message.reply(f"❌ <b>오류가 발생했습니다</b>: {str(e)}", parse_mode="HTML")
+
+# 도움말 명령어 업데이트
+@dp.message_handler(commands=['help'])
+async def help_command(message: types.Message):
+    help_text = """
+<b>📌 DEX 알림 봇 명령어 목록</b>
+
+<b>토큰 관리</b>
+/add [토큰주소] [네트워크] - 토큰 추가 (네트워크 기본값: ethereum)
+/remove - 토큰 제거 메뉴 표시
+/list - 추적 중인 토큰 목록 표시
+/price [토큰주소] - 특정 토큰의 현재 가격 조회
+/update - 모든 토큰 정보 업데이트
+
+<b>시장 스캔 및 알림</b>
+/breakoutalerts - 1백만 달러 돌파 알림 설정 상태 확인
+/breakoutalerts on - 1백만 달러 돌파 알림 활성화
+/breakoutalerts off - 1백만 달러 돌파 알림 비활성화
+/breakouts - 최근 1백만 달러 돌파 토큰 목록 조회
+/potential - 현재 추적 중인 잠재적 토큰 목록 조회
+
+<b>스캠 체크</b>
+/scamcheck [토큰주소] [네트워크] - 토큰의 스캠 위험도 분석
+/scamcheckall - 추적 중인 모든 토큰의 스캠 위험도 분석
+
+<b>OHLC 데이터 및 알림</b>
+/ohlc [토큰주소] [네트워크] [간격] [개수] - OHLC 데이터 조회
+/ohlcalert - OHLC 알림 설정 도움말
+/dailysummary - 일일 요약 알림 설정 상태 확인
+/dailysummary on - 일일 요약 알림 활성화 (매일 오전 6시)
+/dailysummary off - 일일 요약 알림 비활성화
+
+<b>기타</b>
+/help - 이 도움말 표시
+"""
+    await message.reply(help_text, parse_mode="HTML")
+
+# OHLC 알림 설정 명령어
+@dp.message_handler(commands=['ohlcalert'])
+async def ohlc_alert_command(message: types.Message):
+    args = message.get_args().split()
+    user_id = message.from_user.id
+    
+    if len(args) < 4:
+        await message.reply(
+            "ℹ️ <b>OHLC 알림 설정 도움말</b>\n\n"
+            "<b>가격 상승 알림 설정:</b>\n"
+            "<code>/ohlcalert price_above 토큰주소 네트워크 가격</code>\n\n"
+            "<b>가격 하락 알림 설정:</b>\n"
+            "<code>/ohlcalert price_below 토큰주소 네트워크 가격</code>\n\n"
+            "<b>일일 변동률 알림 설정:</b>\n"
+            "<code>/ohlcalert daily_change 토큰주소 네트워크 변동률(%)</code>\n\n"
+            "<b>알림 설정 제거:</b>\n"
+            "<code>/ohlcalert remove 토큰주소 네트워크 알림유형</code>\n\n"
+            "<b>알림 설정 목록:</b>\n"
+            "<code>/ohlcalert list</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    # 알림 설정 목록 조회
+    if args[0].lower() == "list":
+        alerts = get_user_ohlc_alerts(user_id)
+        
+        if not alerts:
+            await message.reply("ℹ️ <b>설정된 OHLC 알림이 없습니다.</b>", parse_mode="HTML")
+            return
+        
+        response = "🔔 <b>OHLC 알림 설정 목록</b>\n\n"
+        
+        for i, alert in enumerate(alerts, 1):
+            alert_type_name = {
+                "price_above": "가격 상승",
+                "price_below": "가격 하락",
+                "daily_change": "일일 변동률"
+            }.get(alert["alert_type"], alert["alert_type"])
+            
+            threshold_text = f"${alert['threshold']:.8f}" if alert["alert_type"] in ["price_above", "price_below"] else f"{alert['threshold']}%"
+            
+            response += (
+                f"{i}. <b>{alert['name']} ({alert['symbol']})</b>\n"
+                f"   네트워크: <code>{alert['network']}</code>\n"
+                f"   알림 유형: {alert_type_name}\n"
+                f"   임계값: {threshold_text}\n\n"
+            )
+        
+        await message.reply(response, parse_mode="HTML")
+        return
+    
+    # 알림 설정 제거
+    if args[0].lower() == "remove":
+        if len(args) < 4:
+            await message.reply("❌ <b>잘못된 명령어 형식입니다.</b>\n<code>/ohlcalert remove 토큰주소 네트워크 알림유형</code>", parse_mode="HTML")
+            return
+        
+        token_address = args[1]
+        network = args[2].lower()
+        alert_type = args[3].lower()
+        
+        if alert_type not in ["price_above", "price_below", "daily_change"]:
+            await message.reply("❌ <b>지원하지 않는 알림 유형입니다.</b>\n유효한 알림 유형: price_above, price_below, daily_change", parse_mode="HTML")
+            return
+        
+        if remove_ohlc_alert(user_id, token_address, network, alert_type):
+            await message.reply(f"✅ <b>OHLC 알림 설정이 제거되었습니다.</b>", parse_mode="HTML")
+        else:
+            await message.reply("❌ <b>알림 설정 제거 중 오류가 발생했습니다.</b>", parse_mode="HTML")
+        
+        return
+    
+    # 알림 설정 추가
+    alert_type = args[0].lower()
+    
+    if alert_type not in ["price_above", "price_below", "daily_change"]:
+        await message.reply("❌ <b>지원하지 않는 알림 유형입니다.</b>\n유효한 알림 유형: price_above, price_below, daily_change", parse_mode="HTML")
+        return
+    
+    if len(args) < 4:
+        await message.reply("❌ <b>잘못된 명령어 형식입니다.</b>", parse_mode="HTML")
+        return
+    
+    token_address = args[1]
+    network = args[2].lower()
+    
+    try:
+        threshold = float(args[3])
+    except ValueError:
+        await message.reply("❌ <b>임계값은 숫자여야 합니다.</b>", parse_mode="HTML")
+        return
+    
+    # 토큰 정보 확인
+    loading_message = await message.reply("🔍 <b>토큰 정보를 확인 중입니다...</b>", parse_mode="HTML")
+    
+    price_info = await get_token_price(token_address, network)
+    
+    if not price_info["success"]:
+        await loading_message.edit_text(f"❌ <b>토큰 정보 조회 실패</b>: {price_info['error']}", parse_mode="HTML")
+        return
+    
+    # 알림 설정 추가
+    if add_ohlc_alert(user_id, token_address, network, alert_type, threshold):
+        alert_type_name = {
+            "price_above": "가격 상승",
+            "price_below": "가격 하락",
+            "daily_change": "일일 변동률"
+        }.get(alert_type, alert_type)
+        
+        threshold_text = f"${threshold:.8f}" if alert_type in ["price_above", "price_below"] else f"{threshold}%"
+        
+        await loading_message.edit_text(
+            f"✅ <b>OHLC 알림 설정이 추가되었습니다!</b>\n\n"
+            f"<b>{price_info['name']} ({price_info['symbol']})</b>\n"
+            f"네트워크: <code>{network}</code>\n"
+            f"알림 유형: {alert_type_name}\n"
+            f"임계값: {threshold_text}\n"
+            f"현재 가격: ${price_info['price']:.8f}",
+            parse_mode="HTML"
+        )
+    else:
+        await loading_message.edit_text("❌ <b>알림 설정 추가 중 오류가 발생했습니다.</b>", parse_mode="HTML")
+
+# OHLC 차트 데이터 조회 명령어
+@dp.message_handler(commands=['ohlc'])
+async def ohlc_chart_command(message: types.Message):
+    args = message.get_args().split()
+    
+    if len(args) < 2:
+        await message.reply(
+            "ℹ️ <b>OHLC 차트 데이터 조회 도움말</b>\n\n"
+            "<code>/ohlc 토큰주소 네트워크 [간격] [개수]</code>\n\n"
+            "간격: 1h(기본값) 또는 1d\n"
+            "개수: 조회할 데이터 개수 (기본값: 24)",
+            parse_mode="HTML"
+        )
+        return
+    
+    token_address = args[0]
+    network = args[1].lower()
+    interval = args[2].lower() if len(args) > 2 else "1h"
+    limit = int(args[3]) if len(args) > 3 and args[3].isdigit() else 24
+    
+    if interval not in ["1h", "1d"]:
+        await message.reply("❌ <b>지원하지 않는 시간 간격입니다.</b>\n유효한 간격: 1h, 1d", parse_mode="HTML")
+        return
+    
+    loading_message = await message.reply("🔍 <b>OHLC 데이터를 조회 중입니다...</b>", parse_mode="HTML")
+    
+    # 토큰 정보 확인
+    price_info = await get_token_price(token_address, network)
+    
+    if not price_info["success"]:
+        await loading_message.edit_text(f"❌ <b>토큰 정보 조회 실패</b>: {price_info['error']}", parse_mode="HTML")
+        return
+    
+    # OHLC 데이터 조회
+    ohlc_data = get_ohlc_data(token_address, network, interval, limit)
+    
+    if not ohlc_data["success"] or not ohlc_data["data"]:
+        await loading_message.edit_text(
+            f"ℹ️ <b>{price_info['name']} ({price_info['symbol']})</b>의 OHLC 데이터가 아직 충분하지 않습니다.\n"
+            f"데이터는 5분마다 수집되며, 충분한 데이터가 쌓이면 조회할 수 있습니다.",
+            parse_mode="HTML"
+        )
+        return
+    
+    # 가격 요약 정보 생성
+    price_summary = generate_price_summary(token_address, network)
+    
+    interval_name = "시간별" if interval == "1h" else "일별"
+    
+    response = (
+        f"📊 <b>{price_info['name']} ({price_info['symbol']}) {interval_name} OHLC 데이터</b>\n"
+        f"네트워크: <code>{network}</code>\n\n"
+    )
+    
+    if price_summary["success"]:
+        change_emoji = "🚀" if price_summary["daily_change_percent"] > 0 else "📉"
+        change_direction = "상승" if price_summary["daily_change_percent"] > 0 else "하락"
+        
+        response += (
+            f"현재 가격: <b>${price_summary['current_price']:.8f}</b>\n"
+            f"일일 변동: <b>{change_emoji} {price_summary['daily_change_percent']:.2f}% {change_direction}</b>\n"
+            f"주간 고가: <b>${price_summary['weekly_high']:.8f}</b>\n"
+            f"주간 저가: <b>${price_summary['weekly_low']:.8f}</b>\n\n"
+        )
+    
+    # 최근 5개 캔들 데이터 표시
+    response += "<b>최근 OHLC 데이터:</b>\n"
+    
+    for i, candle in enumerate(ohlc_data["data"][:5]):
+        timestamp = datetime.fromisoformat(candle["timestamp"]).strftime("%Y-%m-%d %H:%M" if interval == "1h" else "%Y-%m-%d")
+        
+        response += (
+            f"{i+1}. <b>{timestamp}</b>\n"
+            f"   시가: ${candle['open']:.8f}\n"
+            f"   고가: ${candle['high']:.8f}\n"
+            f"   저가: ${candle['low']:.8f}\n"
+            f"   종가: ${candle['close']:.8f}\n\n"
+        )
+    
+    await loading_message.edit_text(response, parse_mode="HTML")
+
+# 일일 요약 알림 명령어 처리
+@dp.message_handler(commands=['dailysummary'])
+async def daily_summary_command(message: types.Message):
+    user_id = message.from_user.id
+    args = message.get_args().split()
+    
+    if not args:
+        # 현재 상태 확인
+        status = get_daily_summary_alerts_status(user_id)
+        status_text = "활성화" if status else "비활성화"
+        
+        await message.reply(
+            f"ℹ️ <b>일일 요약 알림 상태</b>: {status_text}\n\n"
+            "<b>명령어 안내:</b>\n"
+            "<code>/dailysummary on</code> - 일일 요약 알림 활성화\n"
+            "<code>/dailysummary off</code> - 일일 요약 알림 비활성화",
+            parse_mode="HTML"
+        )
+        return
+    
+    command = args[0].lower()
+    
+    if command == "on":
+        if enable_daily_summary_alerts(user_id):
+            await message.reply(
+                "✅ <b>일일 요약 알림이 활성화되었습니다.</b>\n"
+                "매일 오전 6시에 추적 중인 모든 토큰의 요약 정보를 받게 됩니다.",
+                parse_mode="HTML"
+            )
+        else:
+            await message.reply("❌ <b>일일 요약 알림 활성화 중 오류가 발생했습니다.</b>", parse_mode="HTML")
+    
+    elif command == "off":
+        if disable_daily_summary_alerts(user_id):
+            await message.reply("✅ <b>일일 요약 알림이 비활성화되었습니다.</b>", parse_mode="HTML")
+        else:
+            await message.reply("❌ <b>일일 요약 알림 비활성화 중 오류가 발생했습니다.</b>", parse_mode="HTML")
+    
+    else:
+        await message.reply(
+            "ℹ️ <b>잘못된 명령어입니다.</b>\n\n"
+            "<b>사용 가능한 명령어:</b>\n"
+            "<code>/dailysummary on</code> - 일일 요약 알림 활성화\n"
+            "<code>/dailysummary off</code> - 일일 요약 알림 비활성화",
             parse_mode="HTML"
         )
 
