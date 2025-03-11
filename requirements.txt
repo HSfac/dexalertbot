@@ -1,19 +1,5 @@
-# 핵심 패키지
-python-dotenv==1.0.0
-aiogram==2.25.1
-requests==2.31.0
-aiohttp==3.8.5
-asyncio==3.4.3
-
-# 스케줄링 및 시간 관련
-schedule==1.2.0
-pytz==2023.3
-python-dateutil==2.8.2
-
-# 데이터 분석 및 시각화
-matplotlib==3.7.2
-pandas==2.0.3
-numpy==1.24.3
-
-# 데이터베이스
-# sqlite3는 Python 표준 라이브러리에 포함되어 있으므로 별도 설치 불필요
+python-dotenv
+aiogram
+requests
+asyncio
+schedule
