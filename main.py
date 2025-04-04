@@ -7,7 +7,6 @@ import time
 import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
-
 from dotenv import load_dotenv
 import csv
 import io
@@ -1197,6 +1196,13 @@ async def check_price_changes():
                         # 이모지 선택 (상승 시 🚀, 하락 시 📉)
                         change_emoji = "🚀" if current_price > last_price else "📉"
                         
+                        # 시가총액 정보를 포맷팅합니다
+                        market_cap_text = ""
+                        if "market_cap" in price_info and isinstance(price_info["market_cap"], (int, float)) and price_info["market_cap"] > 0:
+                            market_cap = price_info["market_cap"]
+                            market_cap_formatted = f"${market_cap:,.0f}"
+                            market_cap_text = f"시가총액: <b>{market_cap_formatted}</b>\n"
+                        
                         try:
                             await bot.send_message(
                                 user_id,
@@ -1205,7 +1211,8 @@ async def check_price_changes():
                                 f"네트워크: <code>{network}</code>\n"
                                 f"이전 가격: <b>${last_price:.8f}</b>\n"
                                 f"현재 가격: <b>${current_price:.8f}</b>\n"
-                                f"변동: <b>{price_change_percent:.2f}% {price_change_direction}</b>\n\n"
+                                f"변동: <b>{price_change_percent:.2f}% {price_change_direction}</b>\n"
+                                f"{market_cap_text}"
                                 f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                                 parse_mode="HTML"
                             )

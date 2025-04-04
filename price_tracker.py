@@ -690,23 +690,41 @@ async def check_ohlc_alerts(bot, token_address: str, network: str, price_info: D
             
             if alert_type == "price_above" and price_info["price"] >= threshold:
                 alert_triggered = True
+                
+                # 시가총액 정보 추가
+                market_cap_text = ""
+                if "market_cap" in price_info and isinstance(price_info["market_cap"], (int, float)) and price_info["market_cap"] > 0:
+                    market_cap = price_info["market_cap"]
+                    market_cap_formatted = f"${market_cap:,.0f}"
+                    market_cap_text = f"시가총액: <b>{market_cap_formatted}</b>\n"
+                
                 alert_message = (
                     f"🚀 <b>가격 상승 알림!</b>\n\n"
                     f"<b>{price_info['name']} ({price_info['symbol']})</b>\n"
                     f"네트워크: <code>{network}</code>\n"
                     f"현재 가격: <b>${price_info['price']:.8f}</b>\n"
-                    f"설정 가격: <b>${threshold:.8f}</b>\n\n"
+                    f"설정 가격: <b>${threshold:.8f}</b>\n"
+                    f"{market_cap_text}\n"
                     f"🕒 {now.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
             
             elif alert_type == "price_below" and price_info["price"] <= threshold:
                 alert_triggered = True
+                
+                # 시가총액 정보 추가
+                market_cap_text = ""
+                if "market_cap" in price_info and isinstance(price_info["market_cap"], (int, float)) and price_info["market_cap"] > 0:
+                    market_cap = price_info["market_cap"]
+                    market_cap_formatted = f"${market_cap:,.0f}"
+                    market_cap_text = f"시가총액: <b>{market_cap_formatted}</b>\n"
+                
                 alert_message = (
                     f"📉 <b>가격 하락 알림!</b>\n\n"
                     f"<b>{price_info['name']} ({price_info['symbol']})</b>\n"
                     f"네트워크: <code>{network}</code>\n"
                     f"현재 가격: <b>${price_info['price']:.8f}</b>\n"
-                    f"설정 가격: <b>${threshold:.8f}</b>\n\n"
+                    f"설정 가격: <b>${threshold:.8f}</b>\n"
+                    f"{market_cap_text}\n"
                     f"🕒 {now.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
             
@@ -723,13 +741,21 @@ async def check_ohlc_alerts(bot, token_address: str, network: str, price_info: D
                         change_emoji = "🚀" if change_percent > 0 else "📉"
                         change_direction = "상승" if change_percent > 0 else "하락"
                         
+                        # 시가총액 정보 추가
+                        market_cap_text = ""
+                        if "market_cap" in price_info and isinstance(price_info["market_cap"], (int, float)) and price_info["market_cap"] > 0:
+                            market_cap = price_info["market_cap"]
+                            market_cap_formatted = f"${market_cap:,.0f}"
+                            market_cap_text = f"시가총액: <b>{market_cap_formatted}</b>\n"
+                        
                         alert_message = (
                             f"{change_emoji} <b>일일 가격 변동 알림!</b>\n\n"
                             f"<b>{price_info['name']} ({price_info['symbol']})</b>\n"
                             f"네트워크: <code>{network}</code>\n"
                             f"현재 가격: <b>${price_info['price']:.8f}</b>\n"
                             f"일일 변동: <b>{change_percent:.2f}% {change_direction}</b>\n"
-                            f"설정 임계값: <b>{threshold:.2f}%</b>\n\n"
+                            f"설정 임계값: <b>{threshold:.2f}%</b>\n"
+                            f"{market_cap_text}\n"
                             f"🕒 {now.strftime('%Y-%m-%d %H:%M:%S')}"
                         )
             
