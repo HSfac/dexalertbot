@@ -45,6 +45,19 @@ from price_tracker import (
     get_daily_summary_alerts_status
 )
 
+# 페어 트래커 모듈 임포트
+from pair_tracker import (
+    init_pair_db,
+    pair_tracker_scheduler,
+    add_token_pair,
+    remove_token_pair,
+    get_user_pairs,
+    toggle_pair_alert,
+    toggle_periodic_alert,
+    get_pair_history,
+    update_pair_symbols
+)
+
 # 환경 변수 로드
 load_dotenv()
 
@@ -1097,14 +1110,16 @@ async def send_help(message: types.Message):
     price_check_button = types.InlineKeyboardButton("💰 가격 확인", callback_data="price_check")
     scam_check_button = types.InlineKeyboardButton("🛡️ 스캠 체크", callback_data="scam_check")
     breakout_button = types.InlineKeyboardButton("🚀 돌파 알림 켜기", callback_data="enable_breakout")
+    dashboard_button = types.InlineKeyboardButton("📊 페어 대시보드", callback_data="pair_dashboard")
     
     markup.add(add_token_button, price_check_button)
     markup.add(scam_check_button, breakout_button)
+    markup.add(dashboard_button)
     
     await message.reply(help_text, parse_mode="HTML", reply_markup=markup)
 
 # 인라인 버튼 콜백 처리
-@dp.callback_query_handler(lambda c: c.data in ['add_token', 'price_check', 'scam_check', 'enable_breakout'])
+@dp.callback_query_handler(lambda c: c.data in ['add_token', 'price_check', 'scam_check', 'enable_breakout', 'pair_dashboard'])
 async def process_callback(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
     
@@ -1117,44 +1132,45 @@ async def process_callback(callback_query: types.CallbackQuery):
         )
     
     elif callback_query.data == "price_check":
-        # 가격 확인 명령어 실행
-        message = types.Message.to_object({
-            "message_id": 0, 
-            "from": callback_query.from_user.to_python(), 
-            "chat": callback_query.message.chat.to_python(), 
-            "date": 0, 
-            "text": "/price"
-        })
-        await get_price(message)
+        # 가격 확인 안내
+        await bot.send_message(
+            callback_query.from_user.id,
+            "💰 <b>가격 확인 방법</b>\n\n"
+            "<code>/price [토큰주소] [네트워크]</code>\n\n"
+            "예시: <code>/price 0x6982508145454Ce325dDbE47a25d4ec3d2311933 ethereum</code>",
+            parse_mode="HTML"
+        )
     
     elif callback_query.data == "scam_check":
-        # 스캠 체크 명령어 실행
-        message = types.Message.to_object({
-            "message_id": 0, 
-            "from": callback_query.from_user.to_python(), 
-            "chat": callback_query.message.chat.to_python(), 
-            "date": 0, 
-            "text": "/scamcheckall"
-        })
-        await scamcheck_all_tokens(message)
+        # 스캠 체크 안내
+        await bot.send_message(
+            callback_query.from_user.id,
+            "🛡️ <b>스캠 체크 방법</b>\n\n"
+            "<code>/scamcheck [토큰주소] [네트워크]</code>\n\n"
+            "예시: <code>/scamcheck 0x6982508145454Ce325dDbE47a25d4ec3d2311933 ethereum</code>",
+            parse_mode="HTML"
+        )
     
     elif callback_query.data == "enable_breakout":
         # 돌파 알림 활성화
-        user_id = callback_query.from_user.id
-        if enable_breakout_alerts(user_id):
-            await bot.send_message(
-                user_id,
-                "✅ <b>1백만 달러 시가총액 돌파 알림이 활성화되었습니다!</b>\n\n"
-                "새로운 토큰이 1백만 달러 시가총액을 돌파하면 알림을 받게 됩니다.",
-                parse_mode="HTML"
-            )
-        else:
-            await bot.send_message(
-                user_id,
-                "❌ <b>알림 설정 중 오류가 발생했습니다.</b>\n\n"
-                "잠시 후 다시 시도해주세요.",
-                parse_mode="HTML"
-            )
+        await bot.send_message(
+            callback_query.from_user.id,
+            "🚀 <b>돌파 알림</b>\n\n"
+            "<code>/breakoutalerts on</code> - 1백만 달러 돌파 알림 활성화\n"
+            "<code>/breakoutalerts off</code> - 돌파 알림 비활성화\n"
+            "<code>/breakouts</code> - 최근 돌파 토큰 목록",
+            parse_mode="HTML"
+        )
+    
+    elif callback_query.data == "pair_dashboard":
+        # 페어 대시보드로 이동
+        from aiogram.types import Message
+        fake_message = Message()
+        fake_message.from_user = callback_query.from_user
+        fake_message.reply = lambda text, **kwargs: bot.send_message(
+            callback_query.from_user.id, text, **kwargs
+        )
+        await pair_dashboard_command(fake_message)
 
 # 가격 모니터링 및 알림 전송 함수 수정
 async def check_price_changes():
@@ -1252,12 +1268,14 @@ async def main():
     init_market_scanner_db()
     init_ohlc_db()
     init_daily_summary_db()  # 일일 요약 알림 데이터베이스 초기화
+    init_pair_db()  # 페어 트래커 데이터베이스 초기화
     
     # 스케줄러 시작
     asyncio.create_task(scheduler())  # 가격 알림 스케줄러
     asyncio.create_task(market_scanner_scheduler())  # 시장 스캔 스케줄러
     asyncio.create_task(ohlc_scheduler(bot))  # OHLC 스케줄러 시작
     asyncio.create_task(daily_summary_scheduler(bot))  # 일일 요약 알림 스케줄러 시작
+    asyncio.create_task(pair_tracker_scheduler(bot))  # 페어 트래커 스케줄러 시작
     
     # 봇 시작
     await dp.start_polling()
@@ -2331,6 +2349,15 @@ async def help_command(message: types.Message):
 /scamcheck [토큰주소] [네트워크] - 토큰의 스캠 위험도 분석
 /scamcheckall - 추적 중인 모든 토큰의 스캠 위험도 분석
 
+<b>토큰 페어 비율 모니터링 (LP 투자 전략)</b>
+/dashboard 또는 /dash - 📊 페어 모니터링 대시보드 (추천!)
+/addpair [페어이름] [토큰A주소] [토큰B주소] [네트워크] [임계값%] - 페어 추가
+/removepair [페어이름] - 페어 제거
+/listpairs - 등록된 페어 목록 조회
+/togglepair [페어이름] - 페어 변화 알림 ON/OFF 토글
+/periodicpair [페어이름] - 페어 주기적 상태 알림 ON/OFF 토글 (1분마다)
+/pairhistory [페어이름] [시간] - 페어 비율 변화 기록 조회
+
 <b>OHLC 데이터 및 알림</b>
 /ohlc [토큰주소] [네트워크] [간격] [개수] - OHLC 데이터 조회
 /ohlcalert - OHLC 알림 설정 도움말
@@ -2594,6 +2621,536 @@ async def daily_summary_command(message: types.Message):
             "<code>/dailysummary off</code> - 일일 요약 알림 비활성화",
             parse_mode="HTML"
         )
+
+# ===== 토큰 페어 비율 모니터링 명령어들 =====
+
+# 페어 추가 명령어
+@dp.message_handler(commands=['addpair'])
+async def add_pair_command(message: types.Message):
+    args = message.get_args().split()
+    user_id = message.from_user.id
+    
+    if len(args) < 3:
+        await message.reply(
+            "ℹ️ <b>페어 추가 사용법</b>\n\n"
+            "<code>/addpair [페어이름] [토큰A주소] [토큰B주소] [네트워크] [임계값%]</code>\n\n"
+            "<b>예시:</b>\n"
+            "<code>/addpair PEPE_DOGE 0x6982508145454ce325ddbe47a25d4ec3d2311933 0xba2ae424d960c26247dd6c32edc70b295c744c43 ethereum 5</code>\n\n"
+            "<b>설명:</b>\n"
+            "• 페어이름: 구분하기 쉬운 이름 (예: PEPE_DOGE)\n"
+            "• 토큰A/토큰B 비율로 계산됩니다\n"
+            "• 네트워크: ethereum(기본값), bsc, polygon 등\n"
+            "• 임계값: 변화율 알림 기준 (기본값: 5%)",
+            parse_mode="HTML"
+        )
+        return
+    
+    pair_name = args[0].upper()
+    token_a = args[1].lower()
+    token_b = args[2].lower()
+    network = args[3].lower() if len(args) > 3 else "ethereum"
+    threshold = float(args[4]) if len(args) > 4 and args[4].replace('.', '').isdigit() else 5.0
+    
+    loading_message = await message.reply("🔍 <b>페어를 추가 중입니다...</b>", parse_mode="HTML")
+    
+    # 토큰 정보 확인
+    try:
+        token_a_info = await get_token_price(token_a, network)
+        token_b_info = await get_token_price(token_b, network)
+        
+        if not token_a_info["success"]:
+            await loading_message.edit_text(f"❌ <b>토큰 A 정보 조회 실패</b>: {token_a_info['error']}", parse_mode="HTML")
+            return
+        
+        if not token_b_info["success"]:
+            await loading_message.edit_text(f"❌ <b>토큰 B 정보 조회 실패</b>: {token_b_info['error']}", parse_mode="HTML")
+            return
+        
+        # 페어 추가
+        result = add_token_pair(user_id, pair_name, token_a, token_b, network, threshold)
+        
+        if result["success"]:
+            # 토큰 심볼 업데이트
+            update_pair_symbols(user_id, pair_name, token_a_info['symbol'], token_b_info['symbol'])
+            
+            ratio = token_a_info["price"] / token_b_info["price"]
+            
+            
+            await loading_message.edit_text(
+                f"✅ <b>페어가 성공적으로 추가되었습니다!</b>\n\n"
+                f"<b>페어 이름:</b> {pair_name}\n"
+                f"<b>토큰 A:</b> {token_a_info['name']} ({token_a_info['symbol']})\n"
+                f"<b>토큰 B:</b> {token_b_info['name']} ({token_b_info['symbol']})\n"
+                f"<b>네트워크:</b> {network}\n"
+                f"<b>현재 비율:</b> {ratio:.6f}\n"
+                f"<b>알림 임계값:</b> {threshold}%\n\n"
+                f"1분마다 비율 변화를 모니터링하여 {threshold}% 이상 변동 시 알림을 보내드립니다.",
+                parse_mode="HTML"
+            )
+        else:
+            await loading_message.edit_text(f"❌ <b>페어 추가 실패</b>: {result['message']}", parse_mode="HTML")
+            
+    except Exception as e:
+        logger.error(f"페어 추가 중 오류: {e}")
+        await loading_message.edit_text(f"❌ <b>페어 추가 중 오류 발생</b>: {str(e)}", parse_mode="HTML")
+
+# 페어 제거 명령어
+@dp.message_handler(commands=['removepair'])
+async def remove_pair_command(message: types.Message):
+    args = message.get_args().split()
+    user_id = message.from_user.id
+    
+    if len(args) < 1:
+        await message.reply(
+            "ℹ️ <b>페어 제거 사용법</b>\n\n"
+            "<code>/removepair [페어이름]</code>\n\n"
+            "<b>예시:</b>\n"
+            "<code>/removepair PEPE_DOGE</code>\n\n"
+            "페어 목록을 확인하려면 <code>/listpairs</code>를 사용하세요.",
+            parse_mode="HTML"
+        )
+        return
+    
+    pair_name = args[0].upper()
+    
+    result = remove_token_pair(user_id, pair_name)
+    
+    if result["success"]:
+        await message.reply(f"✅ <b>{result['message']}</b>", parse_mode="HTML")
+    else:
+        await message.reply(f"❌ <b>{result['message']}</b>", parse_mode="HTML")
+
+# 페어 목록 조회 명령어
+@dp.message_handler(commands=['listpairs'])
+async def list_pairs_command(message: types.Message):
+    user_id = message.from_user.id
+    
+    pairs = get_user_pairs(user_id)
+    
+    if not pairs:
+        await message.reply(
+            "ℹ️ <b>등록된 페어가 없습니다.</b>\n\n"
+            "<code>/addpair</code> 명령어로 페어를 추가하세요.",
+            parse_mode="HTML"
+        )
+        return
+    
+    response = "💰 <b>등록된 토큰 페어 목록</b>\n\n"
+    
+    for i, pair in enumerate(pairs, 1):
+        status_emoji = "🔔" if pair["alert_enabled"] else "🔕"
+        status_text = "알림 ON" if pair["alert_enabled"] else "알림 OFF"
+        
+        periodic_emoji = "⏰" if pair.get("periodic_alert_enabled", False) else "⏸"
+        periodic_text = "주기알림 ON" if pair.get("periodic_alert_enabled", False) else "주기알림 OFF"
+        
+        response += (
+            f"{i}. <b>{pair['pair_name']}</b> {status_emoji} {periodic_emoji}\n"
+            f"   변화 알림: {status_text}\n"
+            f"   주기 알림: {periodic_text}\n"
+            f"   네트워크: <code>{pair['network']}</code>\n"
+            f"   임계값: {pair['change_threshold']}%\n"
+            f"   등록일: {pair['created_at'][:10]}\n\n"
+        )
+    
+    response += (
+        "\n<b>명령어 안내:</b>\n"
+        "• <code>/togglepair [페어이름]</code> - 변화 알림 ON/OFF\n"
+        "• <code>/periodicpair [페어이름]</code> - 주기 알림 ON/OFF\n"
+        "• <code>/pairhistory [페어이름]</code> - 비율 변화 기록\n"
+        "• <code>/removepair [페어이름]</code> - 페어 제거"
+    )
+    
+    await message.reply(response, parse_mode="HTML")
+
+# 페어 알림 토글 명령어
+@dp.message_handler(commands=['togglepair'])
+async def toggle_pair_command(message: types.Message):
+    args = message.get_args().split()
+    user_id = message.from_user.id
+    
+    if len(args) < 1:
+        await message.reply(
+            "ℹ️ <b>페어 알림 토글 사용법</b>\n\n"
+            "<code>/togglepair [페어이름]</code>\n\n"
+            "<b>예시:</b>\n"
+            "<code>/togglepair PEPE_DOGE</code>\n\n"
+            "페어 목록을 확인하려면 <code>/listpairs</code>를 사용하세요.",
+            parse_mode="HTML"
+        )
+        return
+    
+    pair_name = args[0].upper()
+    
+    result = toggle_pair_alert(user_id, pair_name)
+    
+    if result["success"]:
+        await message.reply(f"✅ <b>{result['message']}</b>", parse_mode="HTML")
+    else:
+        await message.reply(f"❌ <b>{result['message']}</b>", parse_mode="HTML")
+
+# 페어 기록 조회 명령어
+@dp.message_handler(commands=['pairhistory'])
+async def pair_history_command(message: types.Message):
+    args = message.get_args().split()
+    user_id = message.from_user.id
+    
+    if len(args) < 1:
+        await message.reply(
+            "ℹ️ <b>페어 기록 조회 사용법</b>\n\n"
+            "<code>/pairhistory [페어이름] [시간]</code>\n\n"
+            "<b>예시:</b>\n"
+            "<code>/pairhistory PEPE_DOGE</code> - 24시간 기록\n"
+            "<code>/pairhistory PEPE_DOGE 12</code> - 12시간 기록\n\n"
+            "페어 목록을 확인하려면 <code>/listpairs</code>를 사용하세요.",
+            parse_mode="HTML"
+        )
+        return
+    
+    pair_name = args[0].upper()
+    hours = int(args[1]) if len(args) > 1 and args[1].isdigit() else 24
+    
+    loading_message = await message.reply("🔍 <b>페어 기록을 조회 중입니다...</b>", parse_mode="HTML")
+    
+    history = get_pair_history(user_id, pair_name, hours)
+    
+    if not history:
+        await loading_message.edit_text(
+            f"ℹ️ <b>페어 '{pair_name}'의 기록이 없습니다.</b>\n\n"
+            "페어가 존재하지 않거나 아직 기록이 생성되지 않았을 수 있습니다.",
+            parse_mode="HTML"
+        )
+        return
+    
+    response = f"📊 <b>페어 '{pair_name}' - 최근 {hours}시간 기록</b>\n\n"
+    
+    # 최근 10개 기록만 표시
+    for i, record in enumerate(history[:10], 1):
+        timestamp = datetime.fromisoformat(record["timestamp"]).strftime("%m-%d %H:%M")
+        change_emoji = "📈" if record["change_percent"] > 0 else "📉" if record["change_percent"] < 0 else "➖"
+        
+        response += (
+            f"{i}. <b>{timestamp}</b> {change_emoji}\n"
+            f"   비율: {record['ratio']:.6f}\n"
+            f"   변화율: {record['change_percent']:+.2f}%\n"
+            f"   토큰A: ${record['token_a_price']:.6f}\n"
+            f"   토큰B: ${record['token_b_price']:.6f}\n\n"
+        )
+    
+    if len(history) > 10:
+        response += f"... 외 {len(history) - 10}개 기록이 더 있습니다."
+    
+    await loading_message.edit_text(response, parse_mode="HTML")
+
+# 주기적 알림 토글 명령어
+@dp.message_handler(commands=['periodicpair'])
+async def toggle_periodic_pair_command(message: types.Message):
+    args = message.get_args().split()
+    user_id = message.from_user.id
+    
+    if not args:
+        await message.reply(
+            "⚠️ <b>사용법:</b> <code>/periodicpair [페어이름]</code>\n\n"
+            "예시: <code>/periodicpair PEPE_DOGE</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    pair_name = args[0]
+    result = toggle_periodic_alert(user_id, pair_name)
+    
+    if result["success"]:
+        await message.reply(f"✅ {result['message']}")
+    else:
+        await message.reply(f"❌ {result['message']}")
+
+# 페어 모니터링 대시보드
+@dp.message_handler(commands=['dashboard', 'dash'])
+async def pair_dashboard_command(message: types.Message):
+    user_id = message.from_user.id
+    pairs = get_user_pairs(user_id)
+    
+    # 대시보드 헤더
+    dashboard_text = "🎛️ <b>페어 모니터링 대시보드</b>\n\n"
+    
+    if not pairs:
+        dashboard_text += (
+            "📭 <b>등록된 페어가 없습니다.</b>\n\n"
+            "💡 <b>빠른 시작 가이드:</b>\n"
+            "1️⃣ 페어 추가: <code>/addpair PEPE_DOGE 0x토큰A주소 0x토큰B주소 ethereum 5</code>\n"
+            "2️⃣ 주기 알림 켜기: <code>/periodicpair PEPE_DOGE</code>\n"
+            "3️⃣ 상태 확인: <code>/listpairs</code>\n\n"
+        )
+    else:
+        # 페어 요약 정보
+        total_pairs = len(pairs)
+        active_alerts = sum(1 for p in pairs if p.get("alert_enabled", False))
+        periodic_alerts = sum(1 for p in pairs if p.get("periodic_alert_enabled", False))
+        
+        dashboard_text += (
+            f"📊 <b>현재 상태</b>\n"
+            f"• 등록된 페어: {total_pairs}개\n"
+            f"• 변화 알림: {active_alerts}개 활성화\n"
+            f"• 주기 알림: {periodic_alerts}개 활성화\n\n"
+            
+            f"🎯 <b>최근 등록 페어 (최대 3개)</b>\n"
+        )
+        
+        # 최근 3개 페어 표시
+        for i, pair in enumerate(pairs[:3], 1):
+            alert_status = "🔔" if pair.get("alert_enabled", False) else "🔕"
+            periodic_status = "⏰" if pair.get("periodic_alert_enabled", False) else "⏸"
+            
+            dashboard_text += (
+                f"{i}. <b>{pair['pair_name']}</b> {alert_status} {periodic_status}\n"
+                f"   임계값: {pair.get('change_threshold', 5)}% | {pair.get('network', 'ethereum')}\n"
+            )
+        
+        if len(pairs) > 3:
+            dashboard_text += f"\n... 및 {len(pairs) - 3}개 더\n"
+        
+        dashboard_text += "\n"
+    
+    # 인라인 키보드 생성
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    # 기본 기능 버튼들
+    add_pair_btn = types.InlineKeyboardButton("➕ 페어 추가", callback_data="dash_add_pair")
+    list_pairs_btn = types.InlineKeyboardButton("📋 페어 목록", callback_data="dash_list_pairs")
+    
+    markup.add(add_pair_btn, list_pairs_btn)
+    
+    if pairs:
+        # 페어가 있을 때만 표시되는 버튼들
+        quick_toggle_btn = types.InlineKeyboardButton("⚡ 빠른 설정", callback_data="dash_quick_toggle")
+        history_btn = types.InlineKeyboardButton("📈 기록 조회", callback_data="dash_history")
+        
+        markup.add(quick_toggle_btn, history_btn)
+    
+    # 도움말 및 새로고침 버튼
+    help_btn = types.InlineKeyboardButton("❓ 도움말", callback_data="dash_help")
+    refresh_btn = types.InlineKeyboardButton("🔄 새로고침", callback_data="dash_refresh")
+    
+    markup.add(help_btn, refresh_btn)
+    
+    await message.reply(dashboard_text, parse_mode="HTML", reply_markup=markup)
+
+# 대시보드 콜백 핸들러
+@dp.callback_query_handler(lambda c: c.data.startswith('dash_'))
+async def process_dashboard_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    user_id = callback_query.from_user.id
+    action = callback_query.data.replace('dash_', '')
+    
+    if action == "add_pair":
+        help_text = (
+            "➕ <b>페어 추가 방법</b>\n\n"
+            "<code>/addpair [페어이름] [토큰A주소] [토큰B주소] [네트워크] [임계값%]</code>\n\n"
+            "📝 <b>예시:</b>\n"
+            "<code>/addpair PEPE_DOGE 0x6982508145454Ce325dDbE47a25d4ec3d2311933 0xba2ae424d960c26247dd6c32edc70b295c744c43 ethereum 5</code>\n\n"
+            "🌐 <b>지원 네트워크:</b>\n"
+            "• ethereum, bsc, polygon, base, solana\n\n"
+            "📊 <b>임계값:</b> 변화율 % (기본: 5%)"
+        )
+        await callback_query.message.edit_text(help_text, parse_mode="HTML", 
+                                             reply_markup=get_back_to_dashboard_keyboard())
+    
+    elif action == "list_pairs":
+        pairs = get_user_pairs(user_id)
+        if not pairs:
+            await callback_query.message.edit_text(
+                "📭 등록된 페어가 없습니다.\n\n➕ 페어를 추가해보세요!",
+                reply_markup=get_back_to_dashboard_keyboard()
+            )
+        else:
+            # 페어 목록을 페이지네이션으로 표시
+            await show_pairs_page(callback_query.message, pairs, 0)
+    
+    elif action == "quick_toggle":
+        pairs = get_user_pairs(user_id)
+        if not pairs:
+            await callback_query.message.edit_text(
+                "📭 설정할 페어가 없습니다.",
+                reply_markup=get_back_to_dashboard_keyboard()
+            )
+        else:
+            await show_quick_toggle_menu(callback_query.message, pairs)
+    
+    elif action == "history":
+        await callback_query.message.edit_text(
+            "📈 <b>기록 조회 방법</b>\n\n"
+            "<code>/pairhistory [페어이름] [시간]</code>\n\n"
+            "📝 <b>예시:</b>\n"
+            "<code>/pairhistory PEPE_DOGE 24</code> (24시간)\n"
+            "<code>/pairhistory PEPE_DOGE 12</code> (12시간)\n\n"
+            "⏰ <b>기본값:</b> 24시간",
+            parse_mode="HTML",
+            reply_markup=get_back_to_dashboard_keyboard()
+        )
+    
+    elif action == "help":
+        await show_dashboard_help(callback_query.message)
+    
+    elif action == "refresh":
+        # 대시보드를 새로고침
+        await pair_dashboard_command(callback_query.message)
+
+def get_back_to_dashboard_keyboard():
+    """대시보드로 돌아가는 키보드"""
+    markup = types.InlineKeyboardMarkup()
+    back_btn = types.InlineKeyboardButton("🔙 대시보드로", callback_data="dash_refresh")
+    markup.add(back_btn)
+    return markup
+
+async def show_pairs_page(message, pairs, page=0):
+    """페어 목록을 페이지별로 표시"""
+    per_page = 5
+    start = page * per_page
+    end = start + per_page
+    page_pairs = pairs[start:end]
+    
+    response = f"📋 <b>페어 목록</b> (페이지 {page + 1}/{(len(pairs) - 1) // per_page + 1})\n\n"
+    
+    for i, pair in enumerate(page_pairs, start + 1):
+        alert_emoji = "🔔" if pair.get("alert_enabled", False) else "🔕"
+        periodic_emoji = "⏰" if pair.get("periodic_alert_enabled", False) else "⏸"
+        
+        response += (
+            f"{i}. <b>{pair['pair_name']}</b> {alert_emoji} {periodic_emoji}\n"
+            f"   변화: {pair.get('change_threshold', 5)}% | {pair.get('network', 'ethereum')}\n\n"
+        )
+    
+    # 페이지네이션 키보드
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    
+    buttons = []
+    if page > 0:
+        buttons.append(types.InlineKeyboardButton("◀️", callback_data=f"pairs_page_{page-1}"))
+    
+    buttons.append(types.InlineKeyboardButton(f"{page + 1}/{(len(pairs) - 1) // per_page + 1}", callback_data="no_action"))
+    
+    if end < len(pairs):
+        buttons.append(types.InlineKeyboardButton("▶️", callback_data=f"pairs_page_{page+1}"))
+    
+    if buttons:
+        markup.add(*buttons)
+    
+    back_btn = types.InlineKeyboardButton("🔙 대시보드로", callback_data="dash_refresh")
+    markup.add(back_btn)
+    
+    await message.edit_text(response, parse_mode="HTML", reply_markup=markup)
+
+async def show_quick_toggle_menu(message, pairs):
+    """빠른 설정 메뉴 표시"""
+    response = "⚡ <b>빠른 설정</b>\n\n페어를 선택하여 알림 설정을 변경하세요:\n\n"
+    
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    
+    for pair in pairs[:10]:  # 최대 10개만 표시
+        alert_status = "🔔" if pair.get("alert_enabled", False) else "🔕"
+        periodic_status = "⏰" if pair.get("periodic_alert_enabled", False) else "⏸"
+        
+        btn_text = f"{pair['pair_name']} {alert_status} {periodic_status}"
+        btn = types.InlineKeyboardButton(btn_text, callback_data=f"toggle_{pair['pair_name']}")
+        markup.add(btn)
+    
+    back_btn = types.InlineKeyboardButton("🔙 대시보드로", callback_data="dash_refresh")
+    markup.add(back_btn)
+    
+    await message.edit_text(response, parse_mode="HTML", reply_markup=markup)
+
+async def show_dashboard_help(message):
+    """대시보드 도움말 표시"""
+    help_text = (
+        "❓ <b>페어 모니터링 도움말</b>\n\n"
+        
+        "🎯 <b>주요 기능</b>\n"
+        "• 변화 알림: 설정한 임계값 초과 시 알림\n"
+        "• 주기 알림: 1분마다 현재 상태 알림\n"
+        "• 비율 기록: 모든 변화 데이터 저장\n\n"
+        
+        "📱 <b>명령어 요약</b>\n"
+        "• <code>/addpair</code> - 페어 추가\n"
+        "• <code>/listpairs</code> - 페어 목록\n"
+        "• <code>/togglepair</code> - 변화 알림 토글\n"
+        "• <code>/periodicpair</code> - 주기 알림 토글\n"
+        "• <code>/pairhistory</code> - 기록 조회\n"
+        "• <code>/dashboard</code> - 이 대시보드\n\n"
+        
+        "💡 <b>팁</b>\n"
+        "• LP 풀의 리밸런싱 타이밍 파악\n"
+        "• 임팩트 손실 모니터링\n"
+        "• 토큰 간 비율 변화 추적\n\n"
+        
+        "🚨 <b>주의사항</b>\n"
+        "• 네트워크 수수료 고려\n"
+        "• 시장 변동성 주의\n"
+        "• 투자는 본인 책임"
+    )
+    
+    await message.edit_text(help_text, parse_mode="HTML", 
+                          reply_markup=get_back_to_dashboard_keyboard())
+
+# 페어 페이지네이션 콜백
+@dp.callback_query_handler(lambda c: c.data.startswith('pairs_page_'))
+async def process_pairs_page_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    page = int(callback_query.data.replace('pairs_page_', ''))
+    pairs = get_user_pairs(callback_query.from_user.id)
+    await show_pairs_page(callback_query.message, pairs, page)
+
+# 빠른 토글 콜백
+@dp.callback_query_handler(lambda c: c.data.startswith('toggle_'))
+async def process_quick_toggle_callback(callback_query: types.CallbackQuery):
+    pair_name = callback_query.data.replace('toggle_', '')
+    user_id = callback_query.from_user.id
+    
+    # 토글 옵션 메뉴 표시
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    
+    change_btn = types.InlineKeyboardButton(
+        "🔔 변화 알림 토글", 
+        callback_data=f"toggle_change_{pair_name}"
+    )
+    periodic_btn = types.InlineKeyboardButton(
+        "⏰ 주기 알림 토글", 
+        callback_data=f"toggle_periodic_{pair_name}"
+    )
+    back_btn = types.InlineKeyboardButton(
+        "🔙 빠른 설정으로", 
+        callback_data="dash_quick_toggle"
+    )
+    
+    markup.add(change_btn, periodic_btn, back_btn)
+    
+    await callback_query.message.edit_text(
+        f"⚡ <b>{pair_name}</b> 설정\n\n변경할 알림 유형을 선택하세요:",
+        parse_mode="HTML",
+        reply_markup=markup
+    )
+    await callback_query.answer()
+
+# 실제 토글 실행 콜백
+@dp.callback_query_handler(lambda c: c.data.startswith('toggle_change_') or c.data.startswith('toggle_periodic_'))
+async def process_actual_toggle_callback(callback_query: types.CallbackQuery):
+    data_parts = callback_query.data.split('_', 2)
+    toggle_type = data_parts[1]  # 'change' or 'periodic'
+    pair_name = data_parts[2]
+    user_id = callback_query.from_user.id
+    
+    if toggle_type == "change":
+        result = toggle_pair_alert(user_id, pair_name)
+    else:  # periodic
+        result = toggle_periodic_alert(user_id, pair_name)
+    
+    if result["success"]:
+        await callback_query.answer(f"✅ {result['message']}", show_alert=True)
+    else:
+        await callback_query.answer(f"❌ {result['message']}", show_alert=True)
+    
+    # 빠른 설정 메뉴로 돌아가기
+    pairs = get_user_pairs(user_id)
+    await show_quick_toggle_menu(callback_query.message, pairs)
 
 if __name__ == '__main__':
     asyncio.run(main())
